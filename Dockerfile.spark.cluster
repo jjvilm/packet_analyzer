@@ -1,0 +1,33 @@
+FROM apache/spark:3.5.0
+
+USER root
+
+RUN groupadd -g 0 airflowgrp || true
+RUN useradd -u 50000 -g 0 -m airflow || true
+
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/* || true
+
+RUN pip3 install --no-cache-dir kafka-python pyspark faker lz4
+
+WORKDIR /app
+
+COPY spark/ ./spark/
+COPY data/ ./data/
+COPY kafka/ ./kafka/
+COPY utils/ ./utils/
+
+RUN chown -R 50000:0 /app
+
+RUN mkdir -p /opt/spark/work /opt/spark/logs /tmp/spark && \
+    chown -R 50000:0 /opt/spark/work /opt/spark/logs /tmp/spark /app
+
+RUN mkdir -p /tmp/spark/work /tmp/spark/local /opt/spark/logs && \
+    chown -R 50000:0 /tmp/spark /opt/spark/logs /app
+
+USER 50000
+
+ENV PYTHONPATH="/app:/app/utils"
+
+CMD ["/bin/bash"]

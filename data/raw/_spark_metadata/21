@@ -1,3 +1,0 @@
-v1
-{"path":"file:///app/data/raw/part-00000-d9d73dcf-2609-4e94-8f06-73e94dd77cc7-c000.snappy.parquet","size":2359,"isDir":false,"modificationTime":1773714975158,"blockReplication":1,"blockSize":33554432,"action":"add"}
-{"path":"file:///app/data/raw/part-00001-da6863fa-c59f-479d-abc7-9bb98b7f25d1-c000.snappy.parquet","size":2252,"isDir":false,"modificationTime":1773714975019,"blockReplication":1,"blockSize":33554432,"action":"add"}

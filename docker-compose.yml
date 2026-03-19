@@ -20,25 +20,12 @@ services:
     container_name: producer
     depends_on:
       - kafka
-    command: bash -c "/app/utils/wait-for-it.sh kafka:9092 -- sleep 3 && python3 /app/kafka/topics.py && python3 /app/kafka/producer.py"
+    command: >
+      bash -c "until (echo > /dev/tcp/kafka/9092) >/dev/null 2>&1; do echo 'Waiting for kafka:9092...'; sleep 1; done; sleep 3; python3 /app/kafka/topics.py && python3 /app/kafka/producer.py"
     volumes:
       - ./kafka:/app/kafka
-      - ./data:/app/data
+      - ./data/blacklist.txt:/app/data/blacklist.txt
       - ./utils:/app/utils
-    networks:
-      - spark-net
-
-  consumer:
-    build:
-      context: .
-      dockerfile: Dockerfile.spark
-    container_name: consumer
-    depends_on:
-      - kafka
-    command: bash -c "spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 /app/spark/stream_consumer.py"
-    volumes:
-      - ./spark:/app/spark
-      - ./data:/app/data
     networks:
       - spark-net
 
@@ -73,12 +60,29 @@ services:
     networks:
       - spark-net
 
+  volume-init:
+    image: busybox:1.36
+    container_name: volume-init
+    command: >
+      sh -c "mkdir -p /app/data/raw /app/data/transformed && chmod -R 777 /app/data/raw /app/data/transformed"
+    volumes:
+      - raw_data:/app/data/raw
+      - transformed_data:/app/data/transformed
+    networks:
+      - spark-net
+
   spark-master:
-    image: apache/spark:3.5.0
+    build:
+      context: .
+      dockerfile: Dockerfile.spark.cluster
+    image: packet-analyzer-spark-cluster:latest
     container_name: spark-master
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     ports:
       - "7077:7077"
       - "8080:8080"
@@ -86,54 +90,57 @@ services:
       - spark-net
     volumes:
       - ./spark:/app/spark
-      - ./data:/app/data
+      - raw_data:/app/data/raw
+      - transformed_data:/app/data/transformed
+      - ./data/blacklist.txt:/app/data/blacklist.txt
+      - ./utils:/app/utils
     command: >
       bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.master.Master --host spark-master"
 
   spark-worker-1:
-    image: apache/spark:3.5.0
+    build:
+      context: .
+      dockerfile: Dockerfile.spark.cluster
+    image: packet-analyzer-spark-cluster:latest
     container_name: spark-worker-1
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_DIR=/tmp/spark/work
+      - SPARK_LOCAL_DIRS=/tmp/spark/local
     depends_on:
-      - spark-master
+      spark-master:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
     ports:
       - "8081:8081"
     networks:
       - spark-net
     volumes:
       - ./spark:/app/spark
-      - ./data:/app/data
-    command: >
-      bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
-
-  spark-worker-2:
-    image: apache/spark:3.5.0
-    container_name: spark-worker-2
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-    depends_on:
-      - spark-master
-    ports:
-      - "8082:8081"
-    networks:
-      - spark-net
-    volumes:
-      - ./spark:/app/spark
-      - ./data:/app/data
+      - raw_data:/app/data/raw
+      - transformed_data:/app/data/transformed
+      - ./data/blacklist.txt:/app/data/blacklist.txt
+      - ./utils:/app/utils
     command: >
       bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
 
   airflow:
     user: "50000:0"
-    image: apache/airflow:2.8.1
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: airflow
     depends_on:
-      - kafka
-      - spark-master
-      - postgres
+      kafka:
+        condition: service_started
+      spark-master:
+        condition: service_started
+      postgres:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
     environment:
       - AIRFLOW_HOME=/app/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -146,11 +153,15 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./airflow:/app/airflow
       - ./spark:/app/spark
-      - ./data:/app/data
+      - raw_data:/app/data/raw
+      - transformed_data:/app/data/transformed
+      - ./data/blacklist.txt:/app/data/blacklist.txt
+      - ./data/transformed:/app/export/transformed
       - ./utils:/app/utils
     ports:
       - "8088:8080"
-    command: bash -c "/app/utils/wait-for-it.sh postgres:5432 -- mkdir -p /tmp/airflow_logs && airflow db migrate && airflow connections create-default-connections && airflow scheduler & airflow webserver"
+    command: >
+      bash -c "until (echo > /dev/tcp/postgres/5432) >/dev/null 2>&1; do echo 'Waiting for postgres:5432...'; sleep 1; done; mkdir -p /tmp/airflow_logs && airflow db migrate && airflow connections create-default-connections && { airflow scheduler & exec airflow webserver; }"
     networks:
       - spark-net
 
@@ -159,3 +170,5 @@ networks:
     driver: bridge
 volumes:
   postgres_data:
+  raw_data:
+  transformed_data:

@@ -77,7 +77,7 @@ class PacketProducer:
 def generate_packet(packet_id, faker_instance, blacklist=None):
     protocol = random.choices(['TCP', 'UDP', 'ICMP'], weights=[0.7, 0.25, 0.05])[0]
     version = random.choices([4, 6], weights=[0.9, 0.1])[0]
-    data_length = random.choices([64, 128, 256, 512, 1024], weights=[0.2, 0.4, 0.2, 0.15, 0.05])[0]
+    data_length = random.choices([16, 32, 64, 100, 128], weights=[0.2, 0.4, 0.2, 0.15, 0.05])[0]
 
  
     def pick_ip(ip_version):
@@ -118,7 +118,7 @@ def generate_packet(packet_id, faker_instance, blacklist=None):
         'SYN', 'ACK', 'FIN', 'PSH', 'RST', 'URG', 'NONE'
     ], weights=[0.3, 0.3, 0.1, 0.1, 0.05, 0.05, 0.1])[0] if protocol == 'TCP' else 'NONE'
     window_size = random.choices([0, 1024, 4096, 8192, 65535], weights=[0.1, 0.2, 0.3, 0.2, 0.2])[0]
-    data = faker_instance.text(max_nb_chars=min(data_length, 200)) if data_length > 0 else ''
+    data = faker_instance.text(max_nb_chars=data_length) if data_length > 0 else ''
     timestamp = int(time.time())
     return {
         "packet_id": str(packet_id),
@@ -140,7 +140,7 @@ def generate_packet(packet_id, faker_instance, blacklist=None):
 def produce_packets(bootstrap_servers = 'kafka:9092', blacklist_path = 'data/blacklist.txt'):
     producer = PacketProducer(bootstrap_servers)
     # Load blacklist.txt
-    try:
+    try:  
         with open(blacklist_path, 'r') as f:
             blacklist = [line.strip() for line in f if line.strip()]
     except FileNotFoundError:
